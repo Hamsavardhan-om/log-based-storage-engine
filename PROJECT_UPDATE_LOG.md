@@ -4,7 +4,7 @@
 
 few lines
 
-## Update 1:
+## Update 1: Basic setup
 
 - Installed WSL since I possess windows machine. Setup a new user in linux remote and installed WSL for VS code to make sure that I operate the Ubuntu OS in remote using VS code
 
