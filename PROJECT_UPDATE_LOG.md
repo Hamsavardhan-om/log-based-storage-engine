@@ -117,10 +117,42 @@ The engine is an **Embedded In-Memory Key-Value Storage Engine** built in modern
 
 ![alt text](image.png)
 
-## Update 4: Region_allocator.cpp
+## Update 4: Region_allocator module.
 
 - It was originally known as arena allocator. This file is responsible for allocating memory in chunks and using it later instead of borrowing memory each time a new entry is added to the storage.
 
 - create region_allocator.hpp and region_allocator.cpp to pipeline this whole process and test_region_allocator.cpp to test the working of this new file.
 
 - main.cpp runs these scripts and confirms that they work as intended
+
+## Update 5: More on region_allocator.hpp
+
+- Declares the Public API: Defines the method signatures (Allocate, AllocateString, TotalAllocatedBytes, TotalChunkMemory) that the rest of the engine (like the SkipList) is allowed to call.  
+MD
+
+- Defines Memory Constants: Sets architectural defaults, including the contiguous kDefaultChunkSize (2 MB) and the hardware-enforced boundary kDefaultAlignment (8 bytes).  
+MD
+
+- Enforces Safety Constraints: Implements the C++ Rule of Five by deleting copy/move constructors and assignment operators to guarantee memory pools cannot be duplicated or invalidated by pointer aliases.
+
+- Encapsulates Internal State: Declares the private structures and state variables (Chunk, alloc_ptr_, bytes_remaining_, chunks_) without exposing their internal memory layouts to consuming modules.
+
+## Update 5: More on region_allocator.cpp
+
+- Executes Bump-Pointer Allocation: Advances alloc_ptr_ sequentially to hand out memory in $O(1)$ constant time without invoking standard system allocators (malloc/new).  
+
+- Computes Hardware Alignment: Calculates pointer misalignments via modulo arithmetic (current_addr % 8) and inserts padding bytes so every allocated pointer lands precisely on an 8-byte boundary.  
+
+- Manages Dynamic Chunk Spawning: Tracks remaining bytes in bytes_remaining_ and calls AllocateNewChunk() to acquire fresh contiguous memory blocks whenever a chunk is exhausted.  
+
+- Deep-Copies String Payloads: Implements AllocateString() via std::memcpy to move transient key-value data into persistent, region-owned RAM buffers.  
+
+- Bulk Cleanup (Zero Fragmentation): Ensures that when the allocator destructs, all internal chunks stored in chunks_ are reclaimed simultaneously, avoiding the overhead of freeing records individually.
+
+## Update 7: More on test_region_allocator.cpp
+
+- Validates Alignment Guarantees: Allocates odd-sized byte requests (e.g., 3, 7, and 13 bytes) and asserts that the resulting memory addresses modulo 8 evaluate strictly to 0.  
+
+- Verifies Data Integrity: Tests that string payloads duplicated via AllocateString() retain their exact contents in memory.  
+
+- Guarantees Memory Independence: Validates that allocated strings point to newly carved heap addresses within the allocator rather than referencing the original literal or caller pointers.
