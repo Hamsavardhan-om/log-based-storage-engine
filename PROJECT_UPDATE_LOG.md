@@ -117,3 +117,10 @@ The engine is an **Embedded In-Memory Key-Value Storage Engine** built in modern
 
 ![alt text](image.png)
 
+## Update 4: Region_allocator.cpp
+
+- It was originally known as arena allocator. This file is responsible for allocating memory in chunks and using it later instead of borrowing memory each time a new entry is added to the storage.
+
+- create region_allocator.hpp and region_allocator.cpp to pipeline this whole process and test_region_allocator.cpp to test the working of this new file.
+
+- main.cpp runs these scripts and confirms that they work as intended
