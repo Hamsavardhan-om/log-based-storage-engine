@@ -156,3 +156,7 @@ MD
 - Verifies Data Integrity: Tests that string payloads duplicated via AllocateString() retain their exact contents in memory.  
 
 - Guarantees Memory Independence: Validates that allocated strings point to newly carved heap addresses within the allocator rather than referencing the original literal or caller pointers.
+
+- Command used in terminal: `g++ -std=c++20 -Iinclude src/region_allocator.cpp src/main.cpp -o run_test && ./run_test` which basically says to use c++20 version, add /include in the header to resolve import errors, compiles all 3 files, and runs the linux binary called ./run_test
+
+## Update
