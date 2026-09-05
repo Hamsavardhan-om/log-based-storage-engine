@@ -137,7 +137,7 @@ MD
 
 - Encapsulates Internal State: Declares the private structures and state variables (Chunk, alloc_ptr_, bytes_remaining_, chunks_) without exposing their internal memory layouts to consuming modules.
 
-## Update 5: More on region_allocator.cpp
+## Update 6: More on region_allocator.cpp
 
 - Executes Bump-Pointer Allocation: Advances alloc_ptr_ sequentially to hand out memory in $O(1)$ constant time without invoking standard system allocators (malloc/new).  
 
@@ -159,4 +159,44 @@ MD
 
 - Command used in terminal: `g++ -std=c++20 -Iinclude src/region_allocator.cpp src/main.cpp -o run_test && ./run_test` which basically says to use c++20 version, add /include in the header to resolve import errors, compiles all 3 files, and runs the linux binary called ./run_test
 
-## Update
+## Update 8: all about skiplist module
+
+- This module is responsible for two things primarily:
+
+1. It makes that the memory required for any new entry into the RAM is allocated from the region_allocator module and does not directly call a malloc or new method.
+
+2. It maintains a skiplist that has levels to it. Similar to binary search but instead of manually running the algo in logN, skiplist quite literally stores Log N levels that makes the search more efficient.
+
+- The node height is decided by random coin flips which makes sure that the overall balance remains fairly accurate and close to middle. 
+
+## Update 9: More on skiplist.hpp
+
+- Defines the Boundaries: Sets architectural limits like kMaxHeight = 16 (up to 16 express shortcut ribbons) and a 50% branching probability (kBranchingProbability = 0.5f).
+
+- Declares Public APIs: Exposes simple, non-allocating functions for the outside engine: Put(key, value) to insert/update, and Get(key) returning a `std::optional<std::string_view>`.
+
+- The Tail Ribbon Struct (struct Node): Declares a dynamic node layout using a flexible pointer array member (Node* forward[1]) and calculates contiguous byte sizes via AllocationSize(height).
+
+- Integrates the Allocator & Locks: Binds directly to a RegionAllocator& and establishes a mutable std::shared_mutex for concurrent access.
+
+## Update 10: More on skiplist.cpp
+
+- Direct Region Memory Carving (CreateNode): Asks RegionAllocator for the exact contiguous bytes needed for a node and its express links, initializes the object via placement new, and deep-copies keys/values into region RAM.
+
+- Probabilistic Leveling (GenerateRandomHeight): Simulates coin flips ($p = 0.5$) to randomly assign express-lane heights to new items, avoiding costly self-balancing tree rotations.
+
+- Express Write Traversal (Put): Traverses from the tallest active express lane down to find splice points. If the key exists, it updates the value in place; if new, it links the node across levels and bumps current_height_ when necessary.
+
+- Fast Read Shortcuts (Get): Uses express-lane pointers to drop through shortcuts in $O(\log N)$ steps, bypassing the disk entirely to return values in nanoseconds.Reader-Writer 
+
+- Concurrency: Wraps writes in std::unique_lock (exclusive access) and reads in std::shared_lock (concurrent shared access).
+
+## Update 11: More on test_skiplist.cpp
+
+- Point Operations: Confirms that inserting multiple records ("Atta_5kg", "Basmati_Rice", "Tata_Salt") and fetching them returns the exact expected values.
+
+- Missing Record Verification: Asserts that querying a nonexistent key ("NonExistent_Item") safely yields std::nullopt instead of crashing.
+
+- In-Place Update Check: Tests that updating an existing key (changing price from "120" to "119") overwrites the data without dangling pointers or duplicate nodes.
+
+- String Lifetime Protection: Creates temporary std::string variables in an isolated scope { ... }, lets them destruct, and confirms the SkipList still reads the values intact—proving data was copied safely into region-owned RAM.
