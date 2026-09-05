@@ -17,6 +17,7 @@ public:
     // Hardware boundary alignment: 8 bytes on standard 64-bit architectures
     static constexpr size_t kDefaultAlignment = alignof(std::max_align_t);
 
+    // Declare constructor and destructor
     explicit RegionAllocator(size_t chunk_size = kDefaultChunkSize);
     ~RegionAllocator();
 
