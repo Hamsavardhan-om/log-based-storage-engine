@@ -200,3 +200,25 @@ MD
 - In-Place Update Check: Tests that updating an existing key (changing price from "120" to "119") overwrites the data without dangling pointers or duplicate nodes.
 
 - String Lifetime Protection: Creates temporary std::string variables in an isolated scope { ... }, lets them destruct, and confirms the SkipList still reads the values intact—proving data was copied safely into region-owned RAM.
+
+## Update 6: Why we need CMake for this project
+
+Now that the project size has grown a bit, it is a good time to pause and think about running efficiency. Currently we compile each file manually and run the whole executable, typically consisting of every file names, a lot of nuance flags etc. This is not at all scalable and prone to errors. Moreover, as project grows, compiling each file introduces latency. To overcome this, we use a build tool called `CMake`.
+
+- Enforces Standards & Safety Flags: Configures global compiler rules, enforcing modern C++20, strict warnings (-Wall), hardware optimizations (-march=native), and AddressSanitizer (-fsanitize=address) to trap memory corruption.
+
+- Automates Third-Party Dependencies: Uses FetchContent to download, build, and link GoogleTest directly from GitHub without manual system installations.
+
+- Packages Core Libraries: Bundles internal storage engine files (region_allocator.cpp, skiplist.cpp, etc.) into a static library (engine_core) so application runners and tests can share it cleanly.
+
+- Maps Include Paths: Automatically exposes include/ across the project, preventing missing header errors.
+
+- Enables Incremental, Parallel Builds: Generates build recipes for Ninja, which uses all CPU cores to compile only the specific files that changed.
+
+- Wires Automated Testing: Links unit test runners with GoogleTest and registers them with ctest for batch test execution.
+
+#### What is GoogleTest
+
+- GoogleTest (GTest) is Google’s open-source C++ unit testing framework designed to write, organize, and execute automated test suites without manual test scaffolding.
+
+- Instead of relying on crude assert() checks inside an ad-hoc main() function, GoogleTest isolates tests into modular test suites, provides rich failure reporting (showing expected vs. actual values), and continues running remaining checks even if one fails.
