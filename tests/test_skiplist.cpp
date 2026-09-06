@@ -21,6 +21,7 @@ int main()
     auto val3 = list.Get("Tata_Salt");
     auto missing = list.Get("NonExistent_Item");
 
+    // Assert makes sure that error is thrown if the conditon is invalidated. If we get a error free console msg, build succeeded
     assert(val1.has_value() && *val1 == "120");
     assert(val2.has_value() && *val2 == "250");
     assert(val3.has_value() && *val3 == "30");

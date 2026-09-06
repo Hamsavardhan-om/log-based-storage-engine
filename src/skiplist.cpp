@@ -14,6 +14,7 @@ SkipList::SkipList(RegionAllocator& allocator)
     head_ = CreateNode("", "", kMaxHeight);
 }
 
+// Responsible for creating new entries in the skiplist. 
 SkipList::Node* SkipList::CreateNode(std::string_view key, std::string_view value, uint8_t height)
 {
     const size_t total_node_bytes = Node::AllocationSize(height);
@@ -27,7 +28,7 @@ SkipList::Node* SkipList::CreateNode(std::string_view key, std::string_view valu
     node->value = allocator_.AllocateString(value);
     node->height = height;
 
-    // 3. Clear forward express pointers
+    // 3. Clear forward express pointers just in case any junk values are stored from previous operations
     for (uint8_t i = 0; i < height; ++i)
     {
         node->forward[i] = nullptr;
@@ -36,6 +37,7 @@ SkipList::Node* SkipList::CreateNode(std::string_view key, std::string_view valu
     return node;
 }
 
+// Here the probability of getting a level higher exponentially decreases making it perfect for deciding the levels. we use 0.5 to simulate coin toss probability
 uint8_t SkipList::GenerateRandomHeight()
 {
     uint8_t height = 1;
@@ -46,6 +48,7 @@ uint8_t SkipList::GenerateRandomHeight()
     return height;
 }
 
+// Returns the current height, makes sure that shared lock is taken so multiple reads can happen at the same time.
 uint8_t SkipList::CurrentHeight() const noexcept
 {
     std::shared_lock<std::shared_mutex> lock(rw_lock_);
@@ -104,7 +107,7 @@ std::optional<std::string_view> SkipList::Get(std::string_view key) const
 
     const Node* current = head_;
 
-    // Drop through shortcuts from top express lane down to base level 0
+    // Drop through shortcuts from top express lane down to base level 0. Here we don't use equality check if current->key == key inside the while loop because adding another condition introduces latency. This jump happens only maximum 16 times anyway so it doesn't matter any significant.
     for (int i = current_height_ - 1; i >= 0; --i)
     {
         while (current->forward[i] != nullptr && current->forward[i]->key < key)
@@ -119,8 +122,9 @@ std::optional<std::string_view> SkipList::Get(std::string_view key) const
     {
         return current->value;
     }
-
+    
+    // means there is no value. This is a part of "optional" class.
     return std::nullopt;
 }
 
-} // namespace engine
+}
