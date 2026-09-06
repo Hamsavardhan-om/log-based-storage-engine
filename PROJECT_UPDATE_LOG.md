@@ -125,7 +125,7 @@ The engine is an **Embedded In-Memory Key-Value Storage Engine** built in modern
 
 - main.cpp runs these scripts and confirms that they work as intended
 
-## Update 5: More on region_allocator.hpp
+### More on region_allocator.hpp
 
 - Declares the Public API: Defines the method signatures (Allocate, AllocateString, TotalAllocatedBytes, TotalChunkMemory) that the rest of the engine (like the SkipList) is allowed to call.  
 MD
@@ -137,7 +137,7 @@ MD
 
 - Encapsulates Internal State: Declares the private structures and state variables (Chunk, alloc_ptr_, bytes_remaining_, chunks_) without exposing their internal memory layouts to consuming modules.
 
-## Update 6: More on region_allocator.cpp
+### More on region_allocator.cpp
 
 - Executes Bump-Pointer Allocation: Advances alloc_ptr_ sequentially to hand out memory in $O(1)$ constant time without invoking standard system allocators (malloc/new).  
 
@@ -149,7 +149,7 @@ MD
 
 - Bulk Cleanup (Zero Fragmentation): Ensures that when the allocator destructs, all internal chunks stored in chunks_ are reclaimed simultaneously, avoiding the overhead of freeing records individually.
 
-## Update 7: More on test_region_allocator.cpp
+### More on test_region_allocator.cpp
 
 - Validates Alignment Guarantees: Allocates odd-sized byte requests (e.g., 3, 7, and 13 bytes) and asserts that the resulting memory addresses modulo 8 evaluate strictly to 0.  
 
@@ -159,7 +159,7 @@ MD
 
 - Command used in terminal: `g++ -std=c++20 -Iinclude src/region_allocator.cpp src/main.cpp -o run_test && ./run_test` which basically says to use c++20 version, add /include in the header to resolve import errors, compiles all 3 files, and runs the linux binary called ./run_test
 
-## Update 8: all about skiplist module
+## Update 5: all about skiplist module
 
 - This module is responsible for two things primarily:
 
@@ -169,7 +169,7 @@ MD
 
 - The node height is decided by random coin flips which makes sure that the overall balance remains fairly accurate and close to middle. 
 
-## Update 9: More on skiplist.hpp
+### More on skiplist.hpp
 
 - Defines the Boundaries: Sets architectural limits like kMaxHeight = 16 (up to 16 express shortcut ribbons) and a 50% branching probability (kBranchingProbability = 0.5f).
 
@@ -179,7 +179,7 @@ MD
 
 - Integrates the Allocator & Locks: Binds directly to a RegionAllocator& and establishes a mutable std::shared_mutex for concurrent access.
 
-## Update 10: More on skiplist.cpp
+### More on skiplist.cpp
 
 - Direct Region Memory Carving (CreateNode): Asks RegionAllocator for the exact contiguous bytes needed for a node and its express links, initializes the object via placement new, and deep-copies keys/values into region RAM.
 
@@ -191,7 +191,7 @@ MD
 
 - Concurrency: Wraps writes in std::unique_lock (exclusive access) and reads in std::shared_lock (concurrent shared access).
 
-## Update 11: More on test_skiplist.cpp
+### More on test_skiplist.cpp
 
 - Point Operations: Confirms that inserting multiple records ("Atta_5kg", "Basmati_Rice", "Tata_Salt") and fetching them returns the exact expected values.
 
