@@ -1,13 +1,16 @@
 include(GoogleTest)
 
-# Compile unit test runner for the allocator
+# 1. Allocator test suite
 add_executable(test_region_allocator test_region_allocator.cpp)
-add_executable(test_wal test_wal.cpp)
-
-# Link the core engine and GoogleTest libraries
 target_link_libraries(test_region_allocator PRIVATE engine_core GTest::gtest_main)
-target_link_libraries(test_wal PRIVATE engine_core GTest::gtest_main)
-
-# Register with CTest
 gtest_discover_tests(test_region_allocator)
+
+# 2. SkipList test suite
+add_executable(test_skiplist test_skiplist.cpp)
+target_link_libraries(test_skiplist PRIVATE engine_core GTest::gtest_main)
+gtest_discover_tests(test_skiplist)
+
+# 3. WAL test suite
+add_executable(test_wal test_wal.cpp)
+target_link_libraries(test_wal PRIVATE engine_core GTest::gtest_main)
 gtest_discover_tests(test_wal)

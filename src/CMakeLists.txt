@@ -1,5 +1,6 @@
 # Build core engine modules into a reusable static library
-add_library(engine_core
+add_library(
+    engine_core
     region_allocator.cpp
     skiplist.cpp
     wal.cpp
