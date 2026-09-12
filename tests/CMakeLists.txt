@@ -24,3 +24,8 @@ gtest_discover_tests(test_recovery)
 add_executable(test_storage_engine test_storage_engine.cpp)
 target_link_libraries(test_storage_engine PRIVATE engine_core GTest::gtest_main)
 gtest_discover_tests(test_storage_engine)
+
+# 6. Crash durability check by simulating a power cut using kill -9
+add_executable(test_crash_durability test_crash_durability.cpp)
+target_link_libraries(test_crash_durability PRIVATE engine_core GTest::gtest_main)
+gtest_discover_tests(test_crash_durability)
