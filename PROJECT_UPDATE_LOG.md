@@ -268,3 +268,37 @@ Example: Let's say we have a new entry put("atta_kg"). Instead of finding the at
 2. Design the recovery module
 
 3. Write an overall orchestrator engine to finish up the MVP for now
+
+## Update 8: The Crash Recovery module
+
+During a powercut or more generally when `kill -9` is executed, the current state of the RAM terminates abruptly whatsoever. To restore this in milliseconds, we created the recovery module. It's sole purpose is to recover the skiplist's state before the power cut. It also has CRC checks that eliminate half-written log entries and make sure the edge case conditions are met. 
+
+### More on recovery.hpp 
+
+- Defines the RecoveryStats telemetry struct, which returns the replayed record count, torn-tail detection flags, and the last clean on-disk byte offset to the caller.
+
+- Declares the RecoveryEngine class interface, establishing a non-owning design that accepts an external SkipList& reference to decouple memory allocation from disk reading.
+
+- Enforces strict single-instance lifecycle semantics by deleting copy and move constructors and operators, preventing multiple recovery routines from executing concurrently against the same file.
+
+- Declares the private ComputeCRC32() helper and stores the target wal_path_ string for on-demand file descriptor access.
+
+### More on recovery.cpp
+
+- Uses POSIX system calls (::open with O_RDWR, ::read, ::close) to stream the binary log sequentially from byte offset zero without runtime overhead.
+
+- Employs an internal IEEE 802.3 SoftwareCRC32 function within an anonymous namespace to detect bit rot, severed payloads, or malformed 16-byte headers.
+
+- Re-inserts validated kPut records and kDelete tombstones directly into the live SkipList, repopulating volatile RAM to its pre-crash state.
+
+- Repairs torn crash writes by invoking ::ftruncate() and ::fdatasync() to prune corrupted trailing bytes back to last_valid_offset, keeping future appends cleanly aligned.
+
+### More on test_recovery.cpp
+
+- Automates filesystem test isolation using GoogleTest fixtures (SetUp / TearDown) to delete temporary .wal artifacts via POSIX ::unlink().
+
+- Verifies successful multi-record replay and in-memory updates by rebuilding an empty SkipList from a clean log and asserting expected key-value states.
+
+- Simulates sudden mid-write power loss (kill -9) by appending raw garbage bytes to the file tail, asserting that torn_tail_detected triggers and the disk file is physically truncated back to the exact valid byte size.
+
+- Runs entirely under AddressSanitizer (-fsanitize=address) to prove the recovery path executes without memory leaks, buffer overruns, or file descriptor leaks.
