@@ -1,6 +1,6 @@
 #include "engine/recovery.hpp"
 
-#include <fcntl.h>
+#include <fcntl.h> // supplies low level POSIX access flags
 #include <unistd.h>
 #include <sys/stat.h>
 #include <vector>
@@ -27,8 +27,9 @@ uint32_t SoftwareCRC32(const uint8_t* data, size_t length, uint32_t previous_crc
     return ~crc;
 }
 
-} // namespace
+} // ending of anonymous namespace
 
+// Initializes the class by storing the filesystem target path (wal_path_) passed by the caller.
 RecoveryEngine::RecoveryEngine(const std::string& wal_path)
     : wal_path_(wal_path)
 {

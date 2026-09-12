@@ -9,7 +9,7 @@
 namespace engine
 {
 
-// Telemetry returned to the caller upon finishing a log scan
+// Telemetry returned to the caller upon finishing a log scan. It denotes the state of the WAL without us needing to inspect the file directly.records_replayed shows the number of valid insertions inside ths skiplist. torn_tail_detected is set to true if CRC mismatch or data loss during powercut. Stores the exact byte boundary upto which all records were clean and valid. 
 struct RecoveryStats
 {
     size_t records_replayed{0};
@@ -17,6 +17,7 @@ struct RecoveryStats
     uint64_t last_valid_offset{0};
 };
 
+// The data structure responsile for the whole recovery engine execution. Contains a public method Recover which serves as the entry point of this engine. accepts a skiplist and modifies it in place and then returns the stats. 
 class RecoveryEngine
 {
 public:
