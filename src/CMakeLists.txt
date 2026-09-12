@@ -5,6 +5,7 @@ add_library(
     skiplist.cpp
     wal.cpp
     recovery.cpp
+    storage_engine.cpp
 )
 
 # Export include/ path to any target linking against engine_core

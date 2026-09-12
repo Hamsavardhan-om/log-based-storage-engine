@@ -19,3 +19,8 @@ gtest_discover_tests(test_wal)
 add_executable(test_recovery test_recovery.cpp)
 target_link_libraries(test_recovery PRIVATE engine_core GTest::gtest_main)
 gtest_discover_tests(test_recovery)
+
+# 5. Storage_engine test suite
+add_executable(test_storage_engine test_storage_engine.cpp)
+target_link_libraries(test_storage_engine PRIVATE engine_core GTest::gtest_main)
+gtest_discover_tests(test_storage_engine)
