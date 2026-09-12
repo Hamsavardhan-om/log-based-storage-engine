@@ -222,3 +222,49 @@ Now that the project size has grown a bit, it is a good time to pause and think 
 - GoogleTest (GTest) is Google’s open-source C++ unit testing framework designed to write, organize, and execute automated test suites without manual test scaffolding.
 
 - Instead of relying on crude assert() checks inside an ad-hoc main() function, GoogleTest isolates tests into modular test suites, provides rich failure reporting (showing expected vs. actual values), and continues running remaining checks even if one fails.
+
+## Update 7: The next step, Write ahead log (WAL)
+
+One of the two main architectural pillars or this project, is WAL. While Skiplist helps in maintaining a highly optimized data structure in RAM, WAL ensures that data is written into the disk to ensure data safety. The core distinction is, instead of writing the whole data into the disk directly, we just append a small log entry so that the data can be recovered anytime.
+
+Example: Let's say we have a new entry put("atta_kg"). Instead of finding the atta_5kg in the full collection of database (which takes logN time in worst case) and updating the number of items from x to x-1 (which is extremely slow compared to RAM since it is a disk write), we just log the atta_5kg entry in a log which even though is a disk operation takes less time. 
+
+### More on wal.hpp
+
+- Enforces On-Disk Packing: Defines WalHeader as an exact 16-byte struct via #pragma pack(push, 1) and static_assert(sizeof(WalHeader) == 16), eliminating hidden compiler padding and establishing an immutable binary wire format.
+
+- Defines Mutation Semantics: Declares enum class OpType : uint8_t (kPut = 0x01, kDelete = 0x02), allowing the engine to distinguish between point updates and tombstone deletions using exactly 1 byte on disk.
+
+- Zero-Copy Public API: Exposes AppendRecord() taking std::string_view parameters, enabling callers to stream keys and values into the persistence pipeline without creating heap temporary copies.
+
+- Durability & Metrics Hooks: Exposes Sync() for manual flushing to non-volatile media and FileSize() returning a 64-bit unsigned integer to track physical growth beyond 4 GB boundaries.
+
+### More on wal.cpp
+
+- Low-Level POSIX File Management: Uses ::open() with O_WRONLY | O_CREAT | O_APPEND (mode 0644) to guarantee that all writes stream sequentially to the tail of the log file at the Linux kernel level.
+
+- Rolling Data Integrity (CRC32): Implements an IEEE 802.3 SoftwareCRC32 checksum algorithm that chains OpType, key/value length prefixes, and raw payload bytes into a single 32-bit checksum to detect torn writes or bit rot.
+
+- Contiguous Memory Assembly: Allocates a contiguous staging buffer (sizeof(WalHeader) + key.size() + value.size()), copies the header followed by raw payload bytes via std::memcpy, and dispatches the entire frame in a single atomic ::write() system call.
+
+- Hardware-Level Durability Guarantee: Issues ::fdatasync() immediately after writing, blocking execution until the drive controller physically etches dirty OS page cache pages onto non-volatile flash storage before acknowledging success.
+
+- RAII Lifecycle & Metadata Querying: Flushes and releases the file descriptor in ~WalWriter() and inspects file size directly via kernel inode metadata using ::fstat()
+
+### More on test_wal.cpp 
+
+- Automates Test Isolation: Leverages SetUp() and TearDown() fixtures via POSIX ::unlink() to ensure no residual files corrupt consecutive test runs.
+
+- Validates Physical Disk Framing: Proves that writes are not merely buffered in memory, but are committed in the exact binary wire layout specified in wal.hpp (16-byte fixed header + variable-length payloads).
+
+- Guarantees Correct Deletion Framing: Confirms that deletion tombstones serialize properly with empty values ($0\text{ bytes}$) without corrupting the on-disk record boundary.
+
+- Validates Low-Level OS Integration: Exercises the live POSIX filesystem pipeline (open, write, fdatasync, fstat, and close) under active AddressSanitizer monitoring.
+
+## Pending Works to do
+
+1. Deep dive into the working of wal and CMake to understand a bit better.
+
+2. Design the recovery module
+
+3. Write an overall orchestrator engine to finish up the MVP for now

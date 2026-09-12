@@ -10,6 +10,7 @@
 namespace engine
 {
 
+// we declare anonymous namespace because in cpp functions declared within this namespace have internal linkage ie., they are stirctly private to this unit wal.cpp and cannot clash with other functions during linking. 
 namespace
 {
 
@@ -28,7 +29,7 @@ uint32_t SoftwareCRC32(const uint8_t* data, size_t length, uint32_t previous_crc
     return ~crc;
 }
 
-} // namespace
+} // anonymous namespace close
 
 WalWriter::WalWriter(const std::string& path)
     : path_(path)
