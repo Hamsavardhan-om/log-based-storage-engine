@@ -4,6 +4,7 @@ add_library(
     region_allocator.cpp
     skiplist.cpp
     wal.cpp
+    recovery.cpp
 )
 
 # Export include/ path to any target linking against engine_core

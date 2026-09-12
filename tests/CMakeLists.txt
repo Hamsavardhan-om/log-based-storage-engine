@@ -14,3 +14,8 @@ gtest_discover_tests(test_skiplist)
 add_executable(test_wal test_wal.cpp)
 target_link_libraries(test_wal PRIVATE engine_core GTest::gtest_main)
 gtest_discover_tests(test_wal)
+
+# 4. Recovery engine test suite
+add_executable(test_recovery test_recovery.cpp)
+target_link_libraries(test_recovery PRIVATE engine_core GTest::gtest_main)
+gtest_discover_tests(test_recovery)
