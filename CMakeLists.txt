@@ -44,3 +44,4 @@ enable_testing()
 # Direct CMake to subdirectories
 add_subdirectory(src)
 add_subdirectory(tests)
+add_subdirectory(benchmarks)
