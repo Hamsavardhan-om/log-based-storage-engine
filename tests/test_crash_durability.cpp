@@ -58,6 +58,12 @@ TEST_F(CrashDurabilityTest, RecoversStateAfterAbruptProcessSIGKILL)
                 }
             }
 
+            // Explicitly sync to ensure these 35 confirmed records are on physical disk
+            if (!db.Sync())
+            {
+                ::_exit(1);
+            }
+
             // Signal parent that 35 items have been committed to disk WAL
             char ack = 'K';
             (void)::write(pipe_fd[1], &ack, 1);

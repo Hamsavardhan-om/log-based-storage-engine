@@ -165,4 +165,58 @@ TEST_F(WalTest, BinaryPayloadIntegrity)
     EXPECT_EQ(read_v, binary_val);
 }
 
+TEST_F(WalTest, WriteBufferingDefersDiskSyncUntilExplicitSyncOrDestructor)
+{
+    {
+        engine::WalWriter writer(test_log_path);
+        ASSERT_TRUE(writer.AppendRecord(engine::OpType::kPut, "Key1", "Val1"));
+        
+        // Logical file size reflects the pending record
+        EXPECT_EQ(writer.FileSize(), 16 + 4 + 4);
+        EXPECT_GT(writer.UnflushedBytes(), 0u);
+
+        // Explicit flush drains the in-memory buffer
+        EXPECT_TRUE(writer.Flush());
+        EXPECT_EQ(writer.UnflushedBytes(), 0u);
+    }
+
+    // After RAII destructor closes, disk holds data cleanly
+    std::ifstream file(test_log_path, std::ios::binary);
+    ASSERT_TRUE(file.is_open());
+    engine::WalHeader header;
+    file.read(reinterpret_cast<char*>(&header), sizeof(header));
+    EXPECT_EQ(file.gcount(), sizeof(header));
+    EXPECT_EQ(header.key_len, 4u);
+    EXPECT_EQ(header.val_len, 4u);
+}
+
+TEST_F(WalTest, BatchAppendCommitsAllRecordsContiguously)
+{
+    {
+        engine::WalWriter writer(test_log_path);
+        std::vector<std::pair<engine::OpType, std::pair<std::string_view, std::string_view>>> batch;
+        batch.push_back({engine::OpType::kPut, {"batch_k1", "batch_v1"}});
+        batch.push_back({engine::OpType::kPut, {"batch_k2", "batch_v2"}});
+        batch.push_back({engine::OpType::kDelete, {"batch_k1", ""}});
+
+        ASSERT_TRUE(writer.AppendBatch(batch, true));
+        EXPECT_EQ(writer.UnflushedBytes(), 0u);
+        EXPECT_EQ(writer.FileSize(), (16 + 8 + 8) + (16 + 8 + 8) + (16 + 8 + 0));
+    }
+
+    std::ifstream file(test_log_path, std::ios::binary);
+    ASSERT_TRUE(file.is_open());
+
+    engine::WalHeader h1, h2, h3;
+    file.read(reinterpret_cast<char*>(&h1), sizeof(h1));
+    file.seekg(h1.key_len + h1.val_len, std::ios::cur);
+    file.read(reinterpret_cast<char*>(&h2), sizeof(h2));
+    file.seekg(h2.key_len + h2.val_len, std::ios::cur);
+    file.read(reinterpret_cast<char*>(&h3), sizeof(h3));
+
+    EXPECT_EQ(h1.op_type, static_cast<uint8_t>(engine::OpType::kPut));
+    EXPECT_EQ(h2.op_type, static_cast<uint8_t>(engine::OpType::kPut));
+    EXPECT_EQ(h3.op_type, static_cast<uint8_t>(engine::OpType::kDelete));
+}
+
 } // namespace

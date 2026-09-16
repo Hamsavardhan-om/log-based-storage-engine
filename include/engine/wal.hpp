@@ -43,17 +43,31 @@ public:
 
     bool AppendRecord(OpType op, std::string_view key, std::string_view value = "");
 
-    // Is basically a "make sure to save" method. Usualy write() actually puts the data in kernel cache, which can still be bad during unusual power cuts. Hence manually commanding the OS through fdatasync(fd) method ensures that disk write is properly done.
+    // Commits an entire batch of records to the buffer and syncs to disk
+    bool AppendBatch(const std::vector<std::pair<OpType, std::pair<std::string_view, std::string_view>>>& records, bool sync = true);
+
+    // Flushes in-memory buffer to kernel cache and forces physical drive sync via fdatasync()
     bool Sync();
 
-    // Inspector returning current physical file size. Return type if 64bit int because of limit and it's unsigned because file cannot have negative size.
+    // Flushes in-memory buffer to kernel cache without calling fdatasync()
+    bool Flush();
+
+    // Inspector returning total logical file size (on-disk bytes + unflushed buffer bytes)
     [[nodiscard]] uint64_t FileSize() const;
+
+    // Direct access to unflushed buffer size for metrics/monitoring
+    [[nodiscard]] size_t UnflushedBytes() const noexcept { return write_buffer_.size(); }
 
 private:
     uint32_t ComputeCRC32(OpType op, std::string_view key, std::string_view value) const;
+    bool FlushBuffer();
 
     int fd_{-1};
     std::string path_;
+
+    // In-memory write buffer to batch disk I/O and reduce fdatasync overhead
+    std::vector<uint8_t> write_buffer_;
+    static constexpr size_t kDefaultFlushThresholdBytes = 64 * 1024; // 64 KB buffer threshold
 };
 
 }

@@ -25,15 +25,67 @@ bool StorageEngine::Put(std::string_view key, std::string_view value)
         return false;
     }
 
-    // Two-step commit: 
-    // Step 1: Append sequentially to disk WAL and enforce hardware persistence.
+    // Step 1: Append record to WAL buffer (auto-syncs if threshold is reached)
     if (!wal_->AppendRecord(OpType::kPut, key, value))
     {
         return false;
     }
 
-    // Step 2: Insert into live RAM SkipList once disk persistence is guaranteed.
+    // Step 2: Insert into live RAM SkipList
     skiplist_.Put(key, value);
+    return true;
+}
+
+bool StorageEngine::PutSync(std::string_view key, std::string_view value)
+{
+    if (!Put(key, value))
+    {
+        return false;
+    }
+    return Sync();
+}
+
+bool StorageEngine::Write(const WriteBatch& batch, bool sync)
+{
+    if (!wal_)
+    {
+        return false;
+    }
+
+    if (batch.Empty())
+    {
+        return true;
+    }
+
+    // 1. Pack records for WalWriter
+    std::vector<std::pair<OpType, std::pair<std::string_view, std::string_view>>> records;
+    records.reserve(batch.Size());
+
+    for (const auto& entry : batch.Entries())
+    {
+        OpType op = (entry.op == BatchOpType::kPut) ? OpType::kPut : OpType::kDelete;
+        records.emplace_back(op, std::make_pair(std::string_view(entry.key), std::string_view(entry.value)));
+    }
+
+    // 2. Append batch to WAL buffer and optionally sync
+    if (!wal_->AppendBatch(records, sync))
+    {
+        return false;
+    }
+
+    // 3. Apply mutations to in-memory SkipList
+    for (const auto& entry : batch.Entries())
+    {
+        if (entry.op == BatchOpType::kPut)
+        {
+            skiplist_.Put(entry.key, entry.value);
+        }
+        else if (entry.op == BatchOpType::kDelete)
+        {
+            skiplist_.Put(entry.key, "");
+        }
+    }
+
     return true;
 }
 
@@ -58,16 +110,24 @@ bool StorageEngine::Delete(std::string_view key)
         return false;
     }
 
-    // Two-step tombstone write:
-    // Step 1: Append tombstone marker to disk WAL and flush to flash media.
+    // Step 1: Append tombstone marker to disk WAL buffer
     if (!wal_->AppendRecord(OpType::kDelete, key, ""))
     {
         return false;
     }
 
-    // Step 2: Write tombstone empty string into RAM SkipList.
+    // Step 2: Write tombstone empty string into RAM SkipList
     skiplist_.Put(key, "");
     return true;
+}
+
+bool StorageEngine::DeleteSync(std::string_view key)
+{
+    if (!Delete(key))
+    {
+        return false;
+    }
+    return Sync();
 }
 
 bool StorageEngine::Sync()

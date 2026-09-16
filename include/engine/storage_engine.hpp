@@ -4,6 +4,7 @@
 #include "engine/skiplist.hpp"
 #include "engine/wal.hpp"
 #include "engine/recovery.hpp"
+#include "engine/write_batch.hpp"
 
 #include <string>
 #include <string_view>
@@ -29,14 +30,23 @@ public:
     StorageEngine(StorageEngine&&) = delete;
     StorageEngine& operator=(StorageEngine&&) = delete;
 
-    // Writes an update: commits sequentially to disk WAL, then updates RAM SkipList
+    // Writes an update: commits to buffer/WAL, then updates RAM SkipList
     bool Put(std::string_view key, std::string_view value);
+
+    // Synchronous write: immediately commits to disk and calls fdatasync()
+    bool PutSync(std::string_view key, std::string_view value);
+
+    // Writes an atomic batch of operations to the WAL and applies to SkipList
+    bool Write(const WriteBatch& batch, bool sync = true);
 
     // Reads a value directly from the RAM SkipList without touching the SSD
     [[nodiscard]] std::optional<std::string_view> Get(std::string_view key) const;
 
     // Deletes an item: writes a tombstone to disk WAL, then tags the RAM index
     bool Delete(std::string_view key);
+
+    // Deletes an item with immediate disk sync
+    bool DeleteSync(std::string_view key);
 
     // Forces any outstanding operating system file caches onto persistent disk
     bool Sync();

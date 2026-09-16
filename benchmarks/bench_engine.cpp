@@ -54,7 +54,7 @@ BenchmarkResult RunWalPutBenchmark(const std::string& wal_path, size_t num_ops)
             std::string val = "item_val_payload_" + std::to_string(i * 3);
 
             auto op_start = Clock::now();
-            db.Put(key, val);
+            db.PutSync(key, val); // Explicit per-operation fdatasync
             auto op_end = Clock::now();
 
             latencies_us.push_back(std::chrono::duration<double, std::micro>(op_end - op_start).count());
@@ -177,9 +177,95 @@ BenchmarkResult RunNaiveDiskWriteBenchmark(const std::string& file_path, size_t 
     res.total_time_sec = total_sec;
     res.ops_per_sec = static_cast<double>(num_ops) / total_sec;
     res.p50_us = latencies_us[static_cast<size_t>(num_ops * 0.50)];
-    res.p99_us = latencies_us[static_cast<size_t>(num_ops * 0.99)];
+    res.p99_us = latencies_us[static_cast<size_t>(static_cast<double>(num_ops) * 0.99)];
     res.max_us = latencies_us.back();
 
+    return res;
+}
+
+BenchmarkResult RunBufferedWalPutBenchmark(const std::string& wal_path, size_t num_ops)
+{
+    ::unlink(wal_path.c_str());
+    std::vector<double> latencies_us;
+    latencies_us.reserve(num_ops);
+
+    auto start_total = Clock::now();
+    {
+        engine::StorageEngine db(wal_path);
+
+        for (size_t i = 0; i < num_ops; ++i)
+        {
+            std::string key = "item_key_" + std::to_string(i);
+            std::string val = "item_val_payload_" + std::to_string(i * 3);
+
+            auto op_start = Clock::now();
+            db.Put(key, val);
+            auto op_end = Clock::now();
+
+            latencies_us.push_back(std::chrono::duration<double, std::micro>(op_end - op_start).count());
+        }
+        db.Sync();
+    }
+    auto end_total = Clock::now();
+
+    double total_sec = std::chrono::duration<double>(end_total - start_total).count();
+    std::sort(latencies_us.begin(), latencies_us.end());
+
+    BenchmarkResult res;
+    res.name = "1B. Engine Put (Buffered WAL)";
+    res.total_ops = num_ops;
+    res.total_time_sec = total_sec;
+    res.ops_per_sec = static_cast<double>(num_ops) / total_sec;
+    res.p50_us = latencies_us[static_cast<size_t>(static_cast<double>(num_ops) * 0.50)];
+    res.p99_us = latencies_us[static_cast<size_t>(static_cast<double>(num_ops) * 0.99)];
+    res.max_us = latencies_us.back();
+
+    ::unlink(wal_path.c_str());
+    return res;
+}
+
+BenchmarkResult RunBatchPutBenchmark(const std::string& wal_path, size_t num_ops, size_t batch_size = 100)
+{
+    ::unlink(wal_path.c_str());
+    std::vector<double> latencies_us;
+    const size_t num_batches = num_ops / batch_size;
+    latencies_us.reserve(num_batches);
+
+    auto start_total = Clock::now();
+    {
+        engine::StorageEngine db(wal_path);
+
+        for (size_t b = 0; b < num_batches; ++b)
+        {
+            engine::WriteBatch batch;
+            for (size_t i = 0; i < batch_size; ++i)
+            {
+                size_t id = b * batch_size + i;
+                batch.Put("batch_k_" + std::to_string(id), "batch_payload_" + std::to_string(id * 2));
+            }
+
+            auto op_start = Clock::now();
+            db.Write(batch, true);
+            auto op_end = Clock::now();
+
+            latencies_us.push_back(std::chrono::duration<double, std::micro>(op_end - op_start).count() / static_cast<double>(batch_size));
+        }
+    }
+    auto end_total = Clock::now();
+
+    double total_sec = std::chrono::duration<double>(end_total - start_total).count();
+    std::sort(latencies_us.begin(), latencies_us.end());
+
+    BenchmarkResult res;
+    res.name = "1C. Engine Batch Write (100 ops/sync)";
+    res.total_ops = num_ops;
+    res.total_time_sec = total_sec;
+    res.ops_per_sec = static_cast<double>(num_ops) / total_sec;
+    res.p50_us = latencies_us[static_cast<size_t>(static_cast<double>(latencies_us.size()) * 0.50)];
+    res.p99_us = latencies_us[static_cast<size_t>(static_cast<double>(latencies_us.size()) * 0.99)];
+    res.max_us = latencies_us.back();
+
+    ::unlink(wal_path.c_str());
     return res;
 }
 
@@ -187,36 +273,51 @@ BenchmarkResult RunNaiveDiskWriteBenchmark(const std::string& file_path, size_t 
 
 int main()
 {
-    std::cout << "\n" << std::string(88, '=') << "\n";
-    std::cout << "                 STORAGE ENGINE PERFORMANCE BENCHMARK HARNESS\n";
-    std::cout << std::string(88, '=') << "\n\n";
+    std::cout << "\n" << std::string(92, '=') << "\n";
+    std::cout << "                     STORAGE ENGINE PERFORMANCE BENCHMARK HARNESS\n";
+    std::cout << std::string(92, '=') << "\n\n";
 
     constexpr size_t kWritesCount = 2000;
+    constexpr size_t kFastWritesCount = 50000;
     constexpr size_t kReadsCount = 50000;
     constexpr size_t kNaiveWritesCount = 1000;
 
     std::cout << "[*] Benchmarking In-Memory Reads (50,000 lookups)...\n";
     auto read_bench = RunSkipListGetBenchmark(kReadsCount);
 
-    std::cout << "[*] Benchmarking Sequential WAL Writes + Sync (2,000 ops)...\n";
+    std::cout << "[*] Benchmarking Sequential WAL Writes + Per-Op Sync (2,000 ops)...\n";
     auto wal_bench = RunWalPutBenchmark("bench_wal.wal", kWritesCount);
+
+    std::cout << "[*] Benchmarking Buffered WAL Writes (50,000 ops with 64KB threshold sync)...\n";
+    auto wal_buf_bench = RunBufferedWalPutBenchmark("bench_wal_buf.wal", kFastWritesCount);
+
+    std::cout << "[*] Benchmarking WriteBatch Commits (50,000 ops in 100-item batches)...\n";
+    auto wal_batch_bench = RunBatchPutBenchmark("bench_wal_batch.wal", kFastWritesCount, 100);
 
     std::cout << "[*] Benchmarking Naive Disk Random Overwrite + Sync (1,000 ops)...\n";
     auto naive_bench = RunNaiveDiskWriteBenchmark("bench_naive.dat", kNaiveWritesCount);
 
-    std::cout << "\n" << std::string(88, '-') << "\n";
-    std::cout << "                               BENCHMARK RESULTS\n";
-    std::cout << std::string(88, '-') << "\n";
+    std::cout << "\n" << std::string(92, '-') << "\n";
+    std::cout << "                                   BENCHMARK RESULTS\n";
+    std::cout << std::string(92, '-') << "\n";
 
     PrintReport(read_bench);
     PrintReport(wal_bench);
+    PrintReport(wal_buf_bench);
+    PrintReport(wal_batch_bench);
     PrintReport(naive_bench);
 
-    std::cout << std::string(88, '=') << "\n\n";
+    std::cout << std::string(92, '=') << "\n\n";
 
-    double speedup = wal_bench.ops_per_sec / naive_bench.ops_per_sec;
-    std::cout << "-> Sequential Append-Only WAL is ~" << std::fixed << std::setprecision(1)
-              << speedup << "x faster than Naive Disk In-Place Rewrites!\n";
+    double buffered_speedup = wal_buf_bench.ops_per_sec / naive_bench.ops_per_sec;
+    double batch_speedup = wal_batch_bench.ops_per_sec / naive_bench.ops_per_sec;
+
+    std::cout << "-> Per-Op Sync WAL is ~" << std::fixed << std::setprecision(1)
+              << (wal_bench.ops_per_sec / naive_bench.ops_per_sec) << "x speed of Naive Disk (bottlenecked by fdatasync).\n";
+    std::cout << "-> Buffered WAL Writes is ~" << std::fixed << std::setprecision(1)
+              << buffered_speedup << "x FASTER than Naive Disk In-Place Rewrites!\n";
+    std::cout << "-> Batched Writes (100 ops/sync) is ~" << std::fixed << std::setprecision(1)
+              << batch_speedup << "x FASTER than Naive Disk In-Place Rewrites!\n";
     std::cout << "-> RAM SkipList serves queries at ~" << std::fixed << std::setprecision(0)
               << read_bench.ops_per_sec << " ops/second (Sub-microsecond latency).\n\n";
 

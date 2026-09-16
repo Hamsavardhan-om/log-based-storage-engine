@@ -46,7 +46,7 @@ WalWriter::~WalWriter()
 {
     if (fd_ >= 0)
     {
-        ::fdatasync(fd_);
+        Sync();
         ::close(fd_);
         fd_ = -1;
     }
@@ -75,6 +75,28 @@ uint32_t WalWriter::ComputeCRC32(OpType op, std::string_view key, std::string_vi
     return crc;
 }
 
+bool WalWriter::FlushBuffer()
+{
+    if (fd_ < 0)
+    {
+        return false;
+    }
+
+    if (write_buffer_.empty())
+    {
+        return true;
+    }
+
+    ssize_t written = ::write(fd_, write_buffer_.data(), write_buffer_.size());
+    if (written != static_cast<ssize_t>(write_buffer_.size()))
+    {
+        return false;
+    }
+
+    write_buffer_.clear();
+    return true;
+}
+
 bool WalWriter::AppendRecord(OpType op, std::string_view key, std::string_view value)
 {
     if (fd_ < 0)
@@ -89,32 +111,80 @@ bool WalWriter::AppendRecord(OpType op, std::string_view key, std::string_view v
     header.crc32 = ComputeCRC32(op, key, value);
 
     const size_t total_bytes = sizeof(WalHeader) + key.size() + value.size();
-    std::vector<uint8_t> buffer(total_bytes);
+    const size_t old_size = write_buffer_.size();
+    write_buffer_.resize(old_size + total_bytes);
+
+    uint8_t* dest = write_buffer_.data() + old_size;
 
     // 1. Pack 16-byte fixed header
-    std::memcpy(buffer.data(), &header, sizeof(WalHeader));
+    std::memcpy(dest, &header, sizeof(WalHeader));
 
     // 2. Pack raw payloads
     size_t offset = sizeof(WalHeader);
     if (!key.empty())
     {
-        std::memcpy(buffer.data() + offset, key.data(), key.size());
+        std::memcpy(dest + offset, key.data(), key.size());
         offset += key.size();
     }
     if (!value.empty())
     {
-        std::memcpy(buffer.data() + offset, value.data(), value.size());
+        std::memcpy(dest + offset, value.data(), value.size());
     }
 
-    // 3. Write contiguous frame buffer to disk
-    ssize_t written = ::write(fd_, buffer.data(), total_bytes);
-    if (written != static_cast<ssize_t>(total_bytes))
+    // Auto-flush when buffer reaches configured threshold (64 KB)
+    if (write_buffer_.size() >= kDefaultFlushThresholdBytes)
+    {
+        return Sync();
+    }
+
+    return true;
+}
+
+bool WalWriter::AppendBatch(const std::vector<std::pair<OpType, std::pair<std::string_view, std::string_view>>>& records, bool sync)
+{
+    if (fd_ < 0)
     {
         return false;
     }
 
-    // 4. Force kernel page cache flush to flash storage
-    return Sync();
+    for (const auto& record : records)
+    {
+        WalHeader header;
+        header.op_type = static_cast<uint8_t>(record.first);
+        header.key_len = static_cast<uint32_t>(record.second.first.size());
+        header.val_len = static_cast<uint32_t>(record.second.second.size());
+        header.crc32 = ComputeCRC32(record.first, record.second.first, record.second.second);
+
+        const size_t total_bytes = sizeof(WalHeader) + record.second.first.size() + record.second.second.size();
+        const size_t old_size = write_buffer_.size();
+        write_buffer_.resize(old_size + total_bytes);
+
+        uint8_t* dest = write_buffer_.data() + old_size;
+        std::memcpy(dest, &header, sizeof(WalHeader));
+
+        size_t offset = sizeof(WalHeader);
+        if (!record.second.first.empty())
+        {
+            std::memcpy(dest + offset, record.second.first.data(), record.second.first.size());
+            offset += record.second.first.size();
+        }
+        if (!record.second.second.empty())
+        {
+            std::memcpy(dest + offset, record.second.second.data(), record.second.second.size());
+        }
+    }
+
+    if (sync || write_buffer_.size() >= kDefaultFlushThresholdBytes)
+    {
+        return Sync();
+    }
+
+    return true;
+}
+
+bool WalWriter::Flush()
+{
+    return FlushBuffer();
 }
 
 bool WalWriter::Sync()
@@ -123,6 +193,12 @@ bool WalWriter::Sync()
     {
         return false;
     }
+
+    if (!FlushBuffer())
+    {
+        return false;
+    }
+
     return ::fdatasync(fd_) == 0;
 }
 
@@ -131,7 +207,8 @@ uint64_t WalWriter::FileSize() const
     struct stat st{};
     if (::fstat(fd_, &st) == 0)
     {
-        return static_cast<uint64_t>(st.st_size);
+        // Include unflushed bytes sitting in memory buffer
+        return static_cast<uint64_t>(st.st_size) + write_buffer_.size();
     }
     return 0;
 }

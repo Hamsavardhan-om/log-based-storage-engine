@@ -1188,4 +1188,74 @@ TEST_F(StorageEngineE2ETest, 65_FullSystemLoopFinalSanityCheck)
     }
 }
 
+// ============================================================================
+// Group 10: Batching and Group Commit (Tests 66 - 69)
+// ============================================================================
+
+TEST_F(StorageEngineE2ETest, 66_WriteBatchAtomicApplication)
+{
+    engine::StorageEngine db(test_wal);
+
+    engine::WriteBatch batch;
+    batch.Put("batch_k1", "batch_v1");
+    batch.Put("batch_k2", "batch_v2");
+    batch.Delete("batch_k1");
+    batch.Put("batch_k3", "batch_v3");
+
+    EXPECT_TRUE(db.Write(batch, true));
+
+    EXPECT_FALSE(db.Get("batch_k1").has_value());
+    EXPECT_EQ(*db.Get("batch_k2"), "batch_v2");
+    EXPECT_EQ(*db.Get("batch_k3"), "batch_v3");
+}
+
+TEST_F(StorageEngineE2ETest, 67_WriteBatchRebootRecovery)
+{
+    {
+        engine::StorageEngine db(test_wal);
+        engine::WriteBatch batch;
+        for (int i = 0; i < 100; ++i)
+        {
+            batch.Put("BulkKey_" + std::to_string(i), "BulkVal_" + std::to_string(i));
+        }
+        EXPECT_TRUE(db.Write(batch, true));
+    }
+
+    // Cold boot recovery check
+    engine::StorageEngine recovered(test_wal);
+    EXPECT_EQ(recovered.GetRecoveryStats().records_replayed, 100u);
+    for (int i = 0; i < 100; ++i)
+    {
+        auto val = recovered.Get("BulkKey_" + std::to_string(i));
+        ASSERT_TRUE(val.has_value());
+        EXPECT_EQ(*val, "BulkVal_" + std::to_string(i));
+    }
+}
+
+TEST_F(StorageEngineE2ETest, 68_PutSyncAndExplicitSync)
+{
+    {
+        engine::StorageEngine db(test_wal);
+        EXPECT_TRUE(db.PutSync("SyncKey", "SyncVal"));
+        EXPECT_TRUE(db.Put("BufferedKey", "BufferedVal"));
+        EXPECT_TRUE(db.Sync());
+    }
+
+    engine::StorageEngine recovered(test_wal);
+    EXPECT_EQ(*recovered.Get("SyncKey"), "SyncVal");
+    EXPECT_EQ(*recovered.Get("BufferedKey"), "BufferedVal");
+}
+
+TEST_F(StorageEngineE2ETest, 69_DeleteSyncOperation)
+{
+    {
+        engine::StorageEngine db(test_wal);
+        EXPECT_TRUE(db.PutSync("DelKey", "DelVal"));
+        EXPECT_TRUE(db.DeleteSync("DelKey"));
+    }
+
+    engine::StorageEngine recovered(test_wal);
+    EXPECT_FALSE(recovered.Get("DelKey").has_value());
+}
+
 } // namespace
